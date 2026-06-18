@@ -22,3 +22,15 @@ export interface AIConfig {
 }
 
 export type GameStatus = 'idle' | 'playing' | 'finished' | 'replaying';
+
+export interface FavoriteGroup {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface FavoriteItem {
+  groupId: string;
+  recordId: string;
+  addedAt: string;
+}

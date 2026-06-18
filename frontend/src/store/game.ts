@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { BoardState, Move, GameRecord, AIConfig, GameStatus } from '../types';
+import { ref, computed, watch } from 'vue';
+import type { BoardState, Move, GameRecord, AIConfig, GameStatus, FavoriteGroup, FavoriteItem } from '../types';
 
 const BOARD_SIZE = 15;
 const EMPTY = 0;
@@ -201,6 +201,11 @@ export const useGameStore = defineStore('game', () => {
   const aiConfig = ref<AIConfig>({ depth: 3, enabled: true, playerColor: WHITE });
   const isAiThinking = ref(false);
 
+  // Favorites
+  const favoriteGroups = ref<FavoriteGroup[]>([]);
+  const favoriteItems = ref<FavoriteItem[]>([]);
+  const currentFilterGroupId = ref<string | null>(null);
+
   // Replay
   const replayMoves = ref<Move[]>([]);
   const replayIndex = ref(0);
@@ -210,6 +215,37 @@ export const useGameStore = defineStore('game', () => {
 
   const currentMoveCount = computed(() => moves.value.length);
   const isGameOver = computed(() => status.value === 'finished');
+
+  // Load from localStorage
+  const savedRecords = localStorage.getItem('gobang_records');
+  if (savedRecords) {
+    try {
+      gameRecords.value = JSON.parse(savedRecords);
+    } catch (e) { /* ignore */ }
+  }
+  const savedGroups = localStorage.getItem('gobang_favorite_groups');
+  if (savedGroups) {
+    try {
+      favoriteGroups.value = JSON.parse(savedGroups);
+    } catch (e) { /* ignore */ }
+  }
+  const savedItems = localStorage.getItem('gobang_favorite_items');
+  if (savedItems) {
+    try {
+      favoriteItems.value = JSON.parse(savedItems);
+    } catch (e) { /* ignore */ }
+  }
+
+  // Persist to localStorage
+  watch(gameRecords, (val) => {
+    localStorage.setItem('gobang_records', JSON.stringify(val));
+  }, { deep: true });
+  watch(favoriteGroups, (val) => {
+    localStorage.setItem('gobang_favorite_groups', JSON.stringify(val));
+  }, { deep: true });
+  watch(favoriteItems, (val) => {
+    localStorage.setItem('gobang_favorite_items', JSON.stringify(val));
+  }, { deep: true });
 
   function startGame() {
     board.value = createEmptyBoard();
@@ -355,12 +391,90 @@ export const useGameStore = defineStore('game', () => {
     return checkWinAt(board.value, row, col, board.value[row][col]);
   }
 
+  // --- Favorites ---
+
+  const filteredRecords = computed(() => {
+    if (!currentFilterGroupId.value) return gameRecords.value;
+    const recordIds = favoriteItems.value
+      .filter(item => item.groupId === currentFilterGroupId.value)
+      .map(item => item.recordId);
+    return gameRecords.value.filter(r => recordIds.includes(r.id));
+  });
+
+  function createFavoriteGroup(name: string): FavoriteGroup {
+    const group: FavoriteGroup = {
+      id: Date.now().toString(),
+      name,
+      createdAt: new Date().toLocaleString('zh-CN'),
+    };
+    favoriteGroups.value.push(group);
+    return group;
+  }
+
+  function renameFavoriteGroup(groupId: string, newName: string) {
+    const group = favoriteGroups.value.find(g => g.id === groupId);
+    if (group) {
+      group.name = newName;
+    }
+  }
+
+  function deleteFavoriteGroup(groupId: string) {
+    favoriteGroups.value = favoriteGroups.value.filter(g => g.id !== groupId);
+    favoriteItems.value = favoriteItems.value.filter(item => item.groupId !== groupId);
+    if (currentFilterGroupId.value === groupId) {
+      currentFilterGroupId.value = null;
+    }
+  }
+
+  function addToFavorites(recordId: string, groupId: string) {
+    const exists = favoriteItems.value.some(
+      item => item.recordId === recordId && item.groupId === groupId
+    );
+    if (!exists) {
+      favoriteItems.value.push({
+        groupId,
+        recordId,
+        addedAt: new Date().toLocaleString('zh-CN'),
+      });
+    }
+  }
+
+  function removeFromFavorites(recordId: string, groupId: string) {
+    favoriteItems.value = favoriteItems.value.filter(
+      item => !(item.recordId === recordId && item.groupId === groupId)
+    );
+  }
+
+  function isRecordInGroup(recordId: string, groupId: string): boolean {
+    return favoriteItems.value.some(
+      item => item.recordId === recordId && item.groupId === groupId
+    );
+  }
+
+  function getGroupsForRecord(recordId: string): FavoriteGroup[] {
+    const groupIds = favoriteItems.value
+      .filter(item => item.recordId === recordId)
+      .map(item => item.groupId);
+    return favoriteGroups.value.filter(g => groupIds.includes(g.id));
+  }
+
+  function getRecordCountInGroup(groupId: string): number {
+    return favoriteItems.value.filter(item => item.groupId === groupId).length;
+  }
+
+  function setFilterGroup(groupId: string | null) {
+    currentFilterGroupId.value = groupId;
+  }
+
   return {
     board, currentPlayer, moves, status, winner, gameRecords, aiConfig, isAiThinking,
     replayMoves, replayIndex, replayBoard, isReplayPlaying, replaySpeed,
     currentMoveCount, isGameOver,
+    favoriteGroups, favoriteItems, currentFilterGroupId, filteredRecords,
     startGame, placeStone, aiMove, saveRecord,
     startReplay, replayStepForward, replayStepBack, replayGoToStart, replayGoToEnd,
     toggleReplayPlay, setReplaySpeed, stopReplay, checkWin,
+    createFavoriteGroup, renameFavoriteGroup, deleteFavoriteGroup,
+    addToFavorites, removeFromFavorites, isRecordInGroup, getGroupsForRecord,
+    getRecordCountInGroup, setFilterGroup,
   };
-});
